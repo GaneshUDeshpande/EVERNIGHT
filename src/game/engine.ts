@@ -13,6 +13,8 @@ import {
   ShrineObject,
   AfterimageGhost,
   AchievementDef,
+  GameMode,
+  FortressState,
 } from './types';
 import { sprites } from './sprites';
 import { sound } from './sound';
@@ -58,6 +60,19 @@ export class GameEngine {
   public bossBannerTimer: number = 0;
   public bossKilledThisRun: boolean = false;
   public newAchievementsThisRun: { id: string; name: string; description: string; icon: string; unlocked: boolean }[] = [];
+
+  // Game Mode & Royal Citadel Fortress State
+  public gameMode: GameMode = 'fortress_defense';
+  public fortress: FortressState = {
+    x: 0,
+    y: 0,
+    width: 280,
+    height: 280,
+    hp: 1000,
+    maxHp: 1000,
+    ballistaTimer: 0,
+    isHealingActive: false,
+  };
 
   // In-run Mystery Shrines
   public nearbyShrine: ShrineObject | null = null;
@@ -195,9 +210,20 @@ export class GameEngine {
     };
   }
 
-  public reset(biomeId: BiomeId = 'verdant') {
+  public reset(biomeId: BiomeId = 'verdant', mode: GameMode = 'fortress_defense') {
     const baseStats = storage.calculatePlayerBaseStats();
     this.player = this.createInitialPlayer(baseStats);
+    this.gameMode = mode;
+    this.fortress = {
+      x: 0,
+      y: 0,
+      width: 280,
+      height: 280,
+      hp: 1000,
+      maxHp: 1000,
+      ballistaTimer: 0,
+      isHealingActive: false,
+    };
     this.map.setBiome(biomeId);
     this.waveManager = new EnemyWaveManager();
     this.enemies = [];
@@ -228,7 +254,7 @@ export class GameEngine {
   public start() {
     this.isRunning = true;
     this.lastTimestamp = performance.now();
-    sound.startMusic();
+    sound.playMusicTheme('starting');
     this.loop(this.lastTimestamp);
   }
 
@@ -246,7 +272,7 @@ export class GameEngine {
     if (paused) {
       sound.stopMusic();
     } else {
-      sound.startMusic();
+      sound.playMusicTheme(this.activeBoss ? 'intense' : 'starting');
       this.lastTimestamp = performance.now();
     }
   }
@@ -721,6 +747,9 @@ export class GameEngine {
     // 1. Process Player Input & Movement
     this.updatePlayerMovement(dt);
 
+    // 1.5. Update Royal Citadel Fortress & Courtyard Sanctuary
+    this.updateFortress(dt);
+
     // 2. Health Regen
     if (this.player.stats.hpRegen > 0) {
       this.player.stats.currentHp = Math.min(
@@ -842,6 +871,86 @@ export class GameEngine {
 
     this.player.x += this.player.vx * dt;
     this.player.y += this.player.vy * dt;
+  }
+
+  private updateFortress(dt: number) {
+    const distToCenter = Math.hypot(this.player.x, this.player.y);
+    // 1. Sanctuary Fountain: heals player when inside courtyard (radius 130)
+    const insideCourtyard = distToCenter <= 130;
+    this.fortress.isHealingActive = insideCourtyard;
+
+    if (insideCourtyard && this.player.stats.currentHp < this.player.stats.maxHp && !this.player.isDead) {
+      this.healPlayer(5 * dt);
+      if (Math.random() < 0.25) {
+        this.particles.push({
+          id: this.nextEntityId++,
+          x: this.player.x + (Math.random() * 24 - 12),
+          y: this.player.y + (Math.random() * 24 - 12),
+          vx: 0,
+          vy: -20 - Math.random() * 20,
+          size: 3,
+          color: '#38bdf8',
+          life: 0.6,
+          maxLife: 0.6,
+        });
+      }
+    }
+
+    // 2. Automated Sentry Ballista Spires: fires holy light bolts at approaching enemies within 320px
+    this.fortress.ballistaTimer += dt;
+    if (this.fortress.ballistaTimer >= 1.6) {
+      this.fortress.ballistaTimer = 0;
+      const nearbyEnemies = this.enemies
+        .filter((e) => Math.hypot(e.x, e.y) <= 320)
+        .sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))
+        .slice(0, 2);
+
+      for (const target of nearbyEnemies) {
+        const dx = target.x;
+        const dy = target.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        this.projectiles.push({
+          id: this.nextEntityId++,
+          weaponId: 'sword',
+          x: (dx / dist) * 90,
+          y: (dy / dist) * 90,
+          vx: (dx / dist) * 380,
+          vy: (dy / dist) * 380,
+          damage: 55,
+          radius: 10,
+          pierce: 2,
+          life: 1.2,
+          maxLife: 1.2,
+          angle: Math.atan2(dy, dx),
+          hitEnemies: new Set(),
+        });
+        sound.playSlash();
+      }
+    }
+
+    // 3. In Fortress Defense Mode: Enemies close to the fortress damage the outer walls
+    if (this.gameMode === 'fortress_defense') {
+      let wallBreachDamage = 0;
+      for (const e of this.enemies) {
+        const d = Math.hypot(e.x, e.y);
+        if (d <= 140) {
+          wallBreachDamage += e.damage * dt * 0.35;
+        }
+      }
+
+      if (wallBreachDamage > 0) {
+        this.fortress.hp = Math.max(0, this.fortress.hp - wallBreachDamage);
+        if (Math.random() < 0.1) {
+          sound.playPlayerHurt();
+          this.addScreenShake(3);
+        }
+
+        if (this.fortress.hp <= 0 && !this.player.isDead) {
+          // Citadel breached!
+          this.handlePlayerDeath();
+        }
+      }
+    }
   }
 
   private updateWeapons(dt: number) {
@@ -1347,6 +1456,22 @@ export class GameEngine {
     if (newEnemyProjectiles.length > 0) {
       this.projectiles.push(...newEnemyProjectiles);
     }
+
+    // Dynamic Combat Music Adaptation (Starting vs Intense Fight)
+    const isIntense =
+      this.activeBoss !== null ||
+      this.enemies.length >= 50 ||
+      (this.gameMode === 'fortress_defense' && this.fortress.hp < 450);
+
+    if (isIntense) {
+      if (sound.currentTheme !== 'intense') {
+        sound.playMusicTheme('intense');
+      }
+    } else if (this.enemies.length < 35 && !this.activeBoss) {
+      if (sound.currentTheme !== 'starting') {
+        sound.playMusicTheme('starting');
+      }
+    }
   }
 
   private damagePlayer(rawDamage: number) {
@@ -1731,6 +1856,9 @@ export class GameEngine {
     // 1. Render Map Chunks in Viewport
     this.renderMapChunks();
 
+    // 1.5. Render Royal Citadel Fortress at (0, 0)
+    this.renderFortressCitadel();
+
     // 2. Render Ground AoE Zones (Holy water pools, auras)
     this.renderGroundZones();
 
@@ -1827,6 +1955,224 @@ export class GameEngine {
         }
       }
     }
+  }
+
+  private renderFortressCitadel() {
+    const { ctx } = this;
+    const fLeft = -180;
+    const fTop = -180;
+    const fRight = 180;
+    const fBottom = 180;
+
+    // Viewport cull check
+    if (
+      this.cameraX + this.canvas.width < fLeft ||
+      this.cameraX > fRight ||
+      this.cameraY + this.canvas.height < fTop ||
+      this.cameraY > fBottom
+    ) {
+      return;
+    }
+
+    ctx.save();
+
+    // 1. Cobblestone Courtyard Plaza Foundation
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-140, -140, 280, 280);
+
+    // Decorative flagstone grid
+    ctx.strokeStyle = 'rgba(51, 65, 85, 0.4)';
+    ctx.lineWidth = 1;
+    for (let x = -130; x <= 130; x += 26) {
+      ctx.beginPath();
+      ctx.moveTo(x, -130);
+      ctx.lineTo(x, 130);
+      ctx.stroke();
+    }
+    for (let y = -130; y <= 130; y += 26) {
+      ctx.beginPath();
+      ctx.moveTo(-130, y);
+      ctx.lineTo(130, y);
+      ctx.stroke();
+    }
+
+    // 2. High Masonry Castle Walls
+    ctx.fillStyle = '#334155';
+    // North Wall
+    ctx.fillRect(-140, -140, 280, 24);
+    // West Wall
+    ctx.fillRect(-140, -140, 24, 280);
+    // East Wall
+    ctx.fillRect(116, -140, 24, 280);
+    // South Wall (left and right of the Grand Portcullis entrance)
+    ctx.fillRect(-140, 116, 100, 24);
+    ctx.fillRect(40, 116, 100, 24);
+
+    // Wall Highlights & Stone Crenellations
+    ctx.fillStyle = '#475569';
+    // Crenellations North
+    for (let x = -140; x < 140; x += 20) {
+      ctx.fillRect(x, -144, 12, 6);
+    }
+    // Crenellations West & East
+    for (let y = -130; y < 130; y += 20) {
+      ctx.fillRect(-144, y, 6, 12);
+      ctx.fillRect(138, y, 6, 12);
+    }
+    // Crenellations South
+    for (let x = -135; x <= -50; x += 20) {
+      ctx.fillRect(x, 138, 12, 6);
+    }
+    for (let x = 45; x <= 130; x += 20) {
+      ctx.fillRect(x, 138, 12, 6);
+    }
+
+    // 3. Grand Portcullis Entrance (South Gate)
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(-38, 116, 76, 24);
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 2;
+    for (let x = -30; x <= 30; x += 10) {
+      ctx.beginPath();
+      ctx.moveTo(x, 116);
+      ctx.lineTo(x, 140);
+      ctx.stroke();
+    }
+
+    // 4. Four Fortified Corner Bastions (Round Sentry Towers)
+    const towerCoords = [
+      { x: -130, y: -130 },
+      { x: 130, y: -130 },
+      { x: -130, y: 130 },
+      { x: 130, y: 130 },
+    ];
+
+    for (const t of towerCoords) {
+      // Tower base shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.beginPath();
+      ctx.arc(t.x, t.y + 4, 30, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Tower Stone Body
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, 28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // Tower Parapet Top
+      ctx.fillStyle = '#334155';
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, 22, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Brazier with Flickering Embers
+      const flameFlicker = Math.sin(this.survivalTime * 8 + t.x) * 2;
+      ctx.fillStyle = '#f97316';
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, 7 + flameFlicker, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, 3 + flameFlicker * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Tower Holy Light Sentry Spires
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(t.x, t.y);
+      const angle = this.survivalTime * 1.5 + (t.x > 0 ? 0 : Math.PI);
+      ctx.lineTo(t.x + Math.cos(angle) * 16, t.y + Math.sin(angle) * 16);
+      ctx.stroke();
+    }
+
+    // 5. Central Sacred Fountain / Aegis Crystal Sanctum
+    // Sacred dais
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(0, 0, 48, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Sacred Sanctuary Healing Ring (if player inside)
+    if (this.fortress.isHealingActive) {
+      const pulse = Math.sin(this.survivalTime * 4) * 8;
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, 110 + pulse, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
+      ctx.beginPath();
+      ctx.arc(0, 0, 110 + pulse, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Sacred Floating Aegis Crystal
+    const crystalBob = Math.sin(this.survivalTime * 3) * 6;
+    ctx.save();
+    ctx.translate(0, crystalBob);
+
+    // Glowing Diamond
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.moveTo(0, -22);
+    ctx.lineTo(16, 0);
+    ctx.lineTo(0, 22);
+    ctx.lineTo(-16, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.moveTo(0, -12);
+    ctx.lineTo(8, 0);
+    ctx.lineTo(0, 12);
+    ctx.lineTo(-8, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // 6. Overhead Banner / Citadel Status (In Fortress Defense Mode)
+    if (this.gameMode === 'fortress_defense') {
+      const barW = 140;
+      const barH = 10;
+      const barX = -barW / 2;
+      const barY = -170;
+
+      // Label
+      ctx.fillStyle = '#fde68a';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🏰 ROYAL FORTRESS CITADEL', 0, barY - 6);
+
+      // Bar container
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4);
+
+      // Bar fill
+      const hpRatio = Math.max(0, this.fortress.hp / this.fortress.maxHp);
+      ctx.fillStyle = hpRatio > 0.4 ? '#f59e0b' : '#ef4444';
+      ctx.fillRect(barX, barY, barW * hpRatio, barH);
+    } else {
+      // In Wilderness Survival Mode: Sanctuary label
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🏰 SANCTUARY CITADEL (+5 HP/s)', 0, -170);
+    }
+
+    ctx.restore();
   }
 
   private renderAfterimages() {

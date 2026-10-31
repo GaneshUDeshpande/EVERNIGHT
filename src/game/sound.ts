@@ -510,69 +510,299 @@ class SoundSystem {
     });
   }
 
-  // --- BACKGROUND PROCEDURAL MUSIC SEQUENCER ---
+  // --- MULTI-SCENARIO PROCEDURAL MUSIC SYNTHESIZER ---
+  public currentTheme: 'title' | 'starting' | 'intense' | 'none' = 'none';
 
-  public startMusic() {
-    if (this.isMusicPlaying) return;
+  public resumeContext() {
+    this.initContext();
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  public playMusicTheme(theme: 'title' | 'starting' | 'intense') {
+    if (this.currentTheme === theme && this.isMusicPlaying) return;
+    this.stopMusic();
+    this.currentTheme = theme;
     this.isMusicPlaying = true;
     this.initContext();
 
-    // Harmonic Minor Roguelike progression
+    if (theme === 'title') {
+      this.startTitleMusic();
+    } else if (theme === 'intense') {
+      this.startIntenseBattleMusic();
+    } else {
+      this.startStartingMusic();
+    }
+  }
+
+  public startMusic(theme: 'title' | 'starting' | 'intense' = 'starting') {
+    this.playMusicTheme(theme);
+  }
+
+  /**
+   * Title Theme: "Hymn of the Royal Citadel"
+   * Noble medieval-fantasy court melody with warm Renaissance counterpoint.
+   */
+  private startTitleMusic() {
+    // 32-step majestic royal progression (C - G - Am - F - C - Em - F - G)
     const bassNotes = [
-      110, 110, 164.81, 146.83, 110, 110, 196.0, 164.81,
-      123.47, 123.47, 185.0, 164.81, 123.47, 123.47, 220.0, 196.0,
+      130.81, 0, 130.81, 196.0, 98.0, 0, 146.83, 196.0,
+      110.0, 0, 164.81, 220.0, 87.31, 0, 130.81, 174.61,
+      130.81, 0, 164.81, 196.0, 82.41, 0, 123.47, 164.81,
+      87.31, 0, 130.81, 174.61, 98.0, 146.83, 196.0, 246.94,
     ];
-    const leadArp = [
-      440, 523.25, 659.25, 880, 783.99, 659.25, 523.25, 440,
+
+    const leadMelody = [
+      523.25, 0, 587.33, 659.25, 783.99, 0, 659.25, 587.33,
+      523.25, 0, 440.0, 523.25, 587.33, 0, 523.25, 440.0,
+      659.25, 0, 783.99, 880.0, 783.99, 0, 659.25, 523.25,
+      587.33, 0, 659.25, 783.99, 783.99, 880.0, 987.77, 1046.5,
+    ];
+
+    const harmonyLute = [
+      261.63, 329.63, 392.0, 523.25, 196.0, 246.94, 293.66, 392.0,
+      220.0, 261.63, 329.63, 440.0, 174.61, 220.0, 261.63, 349.23,
+      261.63, 329.63, 392.0, 523.25, 164.81, 196.0, 246.94, 329.63,
+      174.61, 220.0, 261.63, 349.23, 196.0, 246.94, 293.66, 392.0,
     ];
 
     this.bgMusicInterval = window.setInterval(() => {
-      if (
-        this.isMuted ||
-        this.musicVolume <= 0 ||
-        !this.ctx ||
-        this.ctx.state !== 'running'
-      ) {
+      if (this.isMuted || this.musicVolume <= 0 || !this.ctx || this.ctx.state !== 'running') {
         return;
       }
 
       const t = this.ctx.currentTime;
-      const bassFreq = bassNotes[this.musicStep % bassNotes.length];
-      const leadFreq = leadArp[this.musicStep % leadArp.length];
+      const step = this.musicStep % 32;
       this.musicStep++;
 
-      // 1. Bassline Voice
-      const bassOsc = this.ctx.createOscillator();
-      const bassGain = this.ctx.createGain();
-      bassOsc.type = 'triangle';
-      bassOsc.frequency.setValueAtTime(bassFreq, t);
+      // 1. Warm Bassline
+      const bassFreq = bassNotes[step];
+      if (bassFreq > 0) {
+        const bassOsc = this.ctx.createOscillator();
+        const bassGain = this.ctx.createGain();
+        bassOsc.type = 'triangle';
+        bassOsc.frequency.setValueAtTime(bassFreq, t);
 
-      bassGain.gain.setValueAtTime(this.musicVolume * 0.16, t);
-      bassGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+        bassGain.gain.setValueAtTime(this.musicVolume * 0.22, t);
+        bassGain.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
 
-      bassOsc.connect(bassGain);
-      bassGain.connect(this.ctx.destination);
+        bassOsc.connect(bassGain);
+        bassGain.connect(this.ctx.destination);
+        bassOsc.start(t);
+        bassOsc.stop(t + 0.25);
+      }
 
-      bassOsc.start(t);
-      bassOsc.stop(t + 0.18);
+      // 2. Harpsichord / Lute Arpeggio
+      const luteFreq = harmonyLute[step];
+      if (luteFreq > 0) {
+        const luteOsc = this.ctx.createOscillator();
+        const luteGain = this.ctx.createGain();
+        luteOsc.type = 'triangle';
+        luteOsc.frequency.setValueAtTime(luteFreq, t);
 
-      // 2. High Arpeggio Voice (Unlocks during high intensity / mid run)
-      if (this.musicIntensity >= 2 && this.musicStep % 2 === 0) {
+        luteGain.gain.setValueAtTime(this.musicVolume * 0.1, t);
+        luteGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+
+        luteOsc.connect(luteGain);
+        luteGain.connect(this.ctx.destination);
+        luteOsc.start(t);
+        luteOsc.stop(t + 0.17);
+      }
+
+      // 3. Soaring Flute / Trumpet Melody
+      const leadFreq = leadMelody[step];
+      if (leadFreq > 0) {
         const leadOsc = this.ctx.createOscillator();
         const leadGain = this.ctx.createGain();
         leadOsc.type = 'sine';
         leadOsc.frequency.setValueAtTime(leadFreq, t);
 
-        leadGain.gain.setValueAtTime(this.musicVolume * 0.08, t);
-        leadGain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+        leadGain.gain.setValueAtTime(this.musicVolume * 0.14, t);
+        leadGain.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
 
         leadOsc.connect(leadGain);
         leadGain.connect(this.ctx.destination);
-
         leadOsc.start(t);
-        leadOsc.stop(t + 0.15);
+        leadOsc.stop(t + 0.34);
       }
-    }, 180);
+    }, 138); // ~108 BPM
+  }
+
+  /**
+   * Starting In-Game Theme: "Frontier Skirmish"
+   * Driving rhythmic pulse, exploration atmosphere, and wandering chiptune melody.
+   */
+  private startStartingMusic() {
+    const bassNotes = [
+      146.83, 146.83, 220.0, 196.0, 116.54, 116.54, 174.61, 146.83,
+      130.81, 130.81, 196.0, 164.81, 110.0, 110.0, 164.81, 130.81,
+    ];
+
+    const leadArp = [
+      587.33, 698.46, 880.0, 1046.5, 932.33, 880.0, 698.46, 587.33,
+      523.25, 659.25, 783.99, 987.77, 880.0, 783.99, 659.25, 523.25,
+    ];
+
+    this.bgMusicInterval = window.setInterval(() => {
+      if (this.isMuted || this.musicVolume <= 0 || !this.ctx || this.ctx.state !== 'running') {
+        return;
+      }
+
+      const t = this.ctx.currentTime;
+      const step = this.musicStep % 16;
+      this.musicStep++;
+
+      // 1. Driving Bassline
+      const bassFreq = bassNotes[step];
+      const bassOsc = this.ctx.createOscillator();
+      const bassGain = this.ctx.createGain();
+      bassOsc.type = 'triangle';
+      bassOsc.frequency.setValueAtTime(bassFreq, t);
+
+      bassGain.gain.setValueAtTime(this.musicVolume * 0.18, t);
+      bassGain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+
+      bassOsc.connect(bassGain);
+      bassGain.connect(this.ctx.destination);
+      bassOsc.start(t);
+      bassOsc.stop(t + 0.19);
+
+      // 2. High Exploring Chimes
+      if (step % 2 === 0) {
+        const leadFreq = leadArp[step];
+        const leadOsc = this.ctx.createOscillator();
+        const leadGain = this.ctx.createGain();
+        leadOsc.type = 'sine';
+        leadOsc.frequency.setValueAtTime(leadFreq, t);
+
+        leadGain.gain.setValueAtTime(this.musicVolume * 0.09, t);
+        leadGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+
+        leadOsc.connect(leadGain);
+        leadGain.connect(this.ctx.destination);
+        leadOsc.start(t);
+        leadOsc.stop(t + 0.17);
+      }
+
+      // 3. Subtle Hi-hat / Kick percussion pulse
+      if (step % 4 === 0) {
+        const kickOsc = this.ctx.createOscillator();
+        const kickGain = this.ctx.createGain();
+        kickOsc.type = 'sine';
+        kickOsc.frequency.setValueAtTime(140, t);
+        kickOsc.frequency.exponentialRampToValueAtTime(35, t + 0.08);
+
+        kickGain.gain.setValueAtTime(this.musicVolume * 0.2, t);
+        kickGain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+
+        kickOsc.connect(kickGain);
+        kickGain.connect(this.ctx.destination);
+        kickOsc.start(t);
+        kickOsc.stop(t + 0.09);
+      }
+    }, 120); // ~125 BPM
+  }
+
+  /**
+   * Intense Combat Theme: "Clash of the Colossus"
+   * Fast 158 BPM galloping battle march with dramatic brass stabs & soaring tension.
+   */
+  private startIntenseBattleMusic() {
+    const battleBass = [
+      146.83, 146.83, 155.56, 146.83, 174.61, 146.83, 220.0, 196.0,
+      138.59, 138.59, 146.83, 138.59, 164.81, 138.59, 207.65, 185.0,
+      130.81, 130.81, 138.59, 130.81, 155.56, 130.81, 196.0, 174.61,
+      123.47, 123.47, 130.81, 123.47, 146.83, 164.81, 185.0, 220.0,
+    ];
+
+    const battleStabs = [
+      293.66, 0, 0, 0, 311.13, 0, 0, 0,
+      277.18, 0, 0, 0, 293.66, 0, 0, 0,
+      261.63, 0, 0, 0, 277.18, 0, 0, 0,
+      246.94, 0, 0, 0, 293.66, 0, 329.63, 0,
+    ];
+
+    const rapidArp = [
+      587.33, 622.25, 698.46, 880.0, 783.99, 698.46, 622.25, 587.33,
+      554.37, 587.33, 659.25, 830.61, 739.99, 659.25, 587.33, 554.37,
+      523.25, 554.37, 622.25, 783.99, 698.46, 622.25, 554.37, 523.25,
+      493.88, 523.25, 587.33, 739.99, 659.25, 587.33, 523.25, 493.88,
+    ];
+
+    this.bgMusicInterval = window.setInterval(() => {
+      if (this.isMuted || this.musicVolume <= 0 || !this.ctx || this.ctx.state !== 'running') {
+        return;
+      }
+
+      const t = this.ctx.currentTime;
+      const step = this.musicStep % 32;
+      this.musicStep++;
+
+      // 1. Galloping 16th Bassline
+      const bassFreq = battleBass[step];
+      const bassOsc = this.ctx.createOscillator();
+      const bassGain = this.ctx.createGain();
+      bassOsc.type = 'sawtooth';
+      bassOsc.frequency.setValueAtTime(bassFreq, t);
+
+      bassGain.gain.setValueAtTime(this.musicVolume * 0.16, t);
+      bassGain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+
+      bassOsc.connect(bassGain);
+      bassGain.connect(this.ctx.destination);
+      bassOsc.start(t);
+      bassOsc.stop(t + 0.11);
+
+      // 2. Brass-like Power Chord Stabs
+      const stabFreq = battleStabs[step];
+      if (stabFreq > 0) {
+        const stabOsc = this.ctx.createOscillator();
+        const stabGain = this.ctx.createGain();
+        stabOsc.type = 'sawtooth';
+        stabOsc.frequency.setValueAtTime(stabFreq, t);
+
+        stabGain.gain.setValueAtTime(this.musicVolume * 0.18, t);
+        stabGain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+
+        stabOsc.connect(stabGain);
+        stabGain.connect(this.ctx.destination);
+        stabOsc.start(t);
+        stabOsc.stop(t + 0.24);
+      }
+
+      // 3. High Cascading Arpeggiator
+      const arpFreq = rapidArp[step];
+      const arpOsc = this.ctx.createOscillator();
+      const arpGain = this.ctx.createGain();
+      arpOsc.type = 'triangle';
+      arpOsc.frequency.setValueAtTime(arpFreq, t);
+
+      arpGain.gain.setValueAtTime(this.musicVolume * 0.08, t);
+      arpGain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+
+      arpOsc.connect(arpGain);
+      arpGain.connect(this.ctx.destination);
+      arpOsc.start(t);
+      arpOsc.stop(t + 0.1);
+
+      // 4. Heavy Battle Snare on beats 2 & 4
+      if (step % 8 === 4) {
+        const snareOsc = this.ctx.createOscillator();
+        const snareGain = this.ctx.createGain();
+        snareOsc.type = 'triangle';
+        snareOsc.frequency.setValueAtTime(220, t);
+        snareOsc.frequency.exponentialRampToValueAtTime(80, t + 0.06);
+
+        snareGain.gain.setValueAtTime(this.musicVolume * 0.18, t);
+        snareGain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+
+        snareOsc.connect(snareGain);
+        snareGain.connect(this.ctx.destination);
+        snareOsc.start(t);
+        snareOsc.stop(t + 0.09);
+      }
+    }, 98); // ~153 BPM
   }
 
   public stopMusic() {
@@ -581,6 +811,7 @@ class SoundSystem {
       this.bgMusicInterval = null;
     }
     this.isMusicPlaying = false;
+    this.currentTheme = 'none';
   }
 }
 

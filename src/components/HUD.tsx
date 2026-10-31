@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Player, Enemy, ShrineObject } from '../game/types';
+import { Player, Enemy, ShrineObject, FortressState, GameMode } from '../game/types';
 import { WEAPON_REGISTRY, PASSIVE_REGISTRY } from '../game/weapons';
 import {
   Skull,
@@ -13,6 +13,7 @@ import {
   Wind,
   Sparkles,
   Compass,
+  Shield,
 } from 'lucide-react';
 
 export interface RadarData {
@@ -35,6 +36,8 @@ interface HUDProps {
   nearbyShrine?: ShrineObject | null;
   radarData?: RadarData | null;
   activeSynergies?: WeaponSynergy[];
+  fortress?: FortressState | null;
+  gameMode?: GameMode;
   onDash?: () => void;
   onUltimate?: () => void;
   onPrayShrine?: () => void;
@@ -50,6 +53,8 @@ export const HUD: React.FC<HUDProps> = ({
   nearbyShrine,
   radarData,
   activeSynergies = [],
+  fortress,
+  gameMode = 'fortress_defense',
   onDash,
   onUltimate,
   onPrayShrine,
@@ -288,6 +293,42 @@ export const HUD: React.FC<HUDProps> = ({
                 <span>{syn.name}</span>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Fortress Aegis Core Status (In Defend the Fortress Mode) */}
+        {gameMode === 'fortress_defense' && fortress && (
+          <div className="w-full max-w-md mx-auto flex flex-col gap-1 bg-slate-900/90 border border-amber-500/70 rounded-xl p-2 sm:p-2.5 shadow-[0_0_20px_rgba(245,158,11,0.3)] backdrop-blur-xs">
+            <div className="flex items-center justify-between text-xs font-bold text-amber-300">
+              <span className="flex items-center gap-1.5 font-game tracking-wider">
+                <Shield className="w-4 h-4 text-amber-400" />
+                <span>CITADEL AEGIS CORE</span>
+                {fortress.isHealingActive && (
+                  <span className="text-[10px] text-emerald-400 font-mono px-1.5 py-0.2 rounded bg-emerald-950/80 border border-emerald-500/50 animate-pulse">
+                    +HEALING (5 HP/s)
+                  </span>
+                )}
+              </span>
+              <span className="font-mono text-slate-200">
+                {Math.max(0, Math.round(fortress.hp))} / {fortress.maxHp} HP
+              </span>
+            </div>
+            <div className="h-2.5 sm:h-3 w-full bg-slate-950 rounded-full overflow-hidden border border-slate-700">
+              <div
+                className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-emerald-400 transition-all duration-200 ease-out"
+                style={{
+                  width: `${Math.max(0, Math.min(100, (fortress.hp / fortress.maxHp) * 100))}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Sanctuary Healing Notice (In Wilderness Survival Mode) */}
+        {gameMode !== 'fortress_defense' && fortress?.isHealingActive && (
+          <div className="self-center flex items-center gap-1.5 px-3 py-1 bg-emerald-950/80 border border-emerald-500/60 rounded-xl text-emerald-300 text-xs font-mono font-bold shadow-lg animate-pulse">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>INSIDE SANCTUARY FOUNTAIN (+5 HP/SEC)</span>
           </div>
         )}
 

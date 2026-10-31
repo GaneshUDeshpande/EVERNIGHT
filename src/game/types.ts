@@ -8,6 +8,19 @@ export type GameState =
   | 'VICTORY'
   | 'META_SHOP';
 
+export type GameMode = 'fortress_defense' | 'wilderness_survival' | 'boss_rush';
+
+export interface FortressState {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  hp: number;
+  maxHp: number;
+  ballistaTimer: number;
+  isHealingActive: boolean;
+}
+
 export type BiomeId = 'verdant' | 'scorched' | 'haunted';
 
 export interface BiomeConfig {
