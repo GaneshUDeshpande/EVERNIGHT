@@ -35,3 +35,59 @@
   background: rgba(100, 116, 139, 0.5);
   border-radius: 3px;
 }
+
+@keyframes pulseGold {
+  0%, 100% {
+    box-shadow: 0 0 25px rgba(245, 158, 11, 0.35), 0 0 50px rgba(245, 158, 11, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 45px rgba(245, 158, 11, 0.65), 0 0 80px rgba(245, 158, 11, 0.35);
+  }
+}
+
+@keyframes emberRise {
+  0% {
+    transform: translateY(0px) scale(0.8) rotate(0deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.85;
+  }
+  85% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(-240px) scale(1.2) rotate(180deg);
+    opacity: 0;
+  }
+}
+
+@keyframes titleGleam {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-pulse-gold {
+  animation: pulseGold 2.4s ease-in-out infinite;
+}
+
+.text-gold-gleam {
+  background: linear-gradient(
+    90deg,
+    #fef08a 0%,
+    #fbbf24 25%,
+    #ffffff 50%,
+    #f59e0b 75%,
+    #fef08a 100%
+  );
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: titleGleam 4s linear infinite;
+}
+
